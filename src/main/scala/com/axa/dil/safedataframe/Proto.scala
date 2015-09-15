@@ -3,6 +3,8 @@ package com.axa.dil.safedataframe
 import org.apache.spark.sql.DataFrame
 import shapeless._
 import shapeless.syntax.singleton._
+import shapeless.syntax.std.traversable._
+import shapeless.ops.hlist.ToTraversable
 
 trait CheckDataFrame[T] {
   def check(df: DataFrame): Either[String, Unit]
@@ -37,6 +39,14 @@ object CheckDataFrame {
 
 class SafeDataFrame[T <: HList](val df: DataFrame) extends AnyVal {
   def apply[U <: AnyRef](col: U)(implicit tt: BasisConstraint[Witness.Aux[col.type] :: HNil, T]) = df(col.toString)
+
+  def select[U <: HList](cols: U)(implicit tt: BasisConstraint[U, T], tt2: LUBConstraint[U, Witness], tt3: ToTraversable.Aux[U, List, Witness]) = {
+    val elems = cols.toList.map((x:Witness) => x.value.toString)
+    elems.toList.headOption.map { h =>
+      df.select(h, elems.toList.tail:_*)
+    }.getOrElse(df)
+  }
+
 }
 
 object SafeDataFrame {
@@ -47,7 +57,7 @@ object SafeDataFrame {
 
 object Hello {
   def main(args: Array[String]): Unit = {
-    println("Hello, world!")
+
     val conf = new org.apache.spark.SparkConf()
     conf.setMaster("local[*]")
       .setAppName("SafeDataFrame")
@@ -63,7 +73,17 @@ object Hello {
     sdf.df.filter(df("age") > 18).select("name")
 
     sdf("name")
-    sdf("notacolumn")  // This fails to compile !
+    //sdf("notacolumn")  // This fails to compile !
+
+    //println("Name & Age:")
+    //val df1 = sdf.select("name".witness :: "age".witness :: HNil)
+    //println(df1.collect().map(_.getValuesMap(df1.columns)))
+
+    println("Name:")
+    val df2 = sdf.select("name".witness :: HNil)
+    println(df2.collect().map(_.getValuesMap(df2.columns)))
+    //println("Empty:")
+    // val df2 = sdf.select(HNil) //doesn't compile
 
     sc.stop()
   }
